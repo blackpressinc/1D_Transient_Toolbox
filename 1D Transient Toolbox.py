@@ -214,25 +214,40 @@ for i in range(cell_count.size): # count form 0 to the total number of cells cal
     for j in range(0,cell_count[i].astype(int)): # for each cell I just created
         cell_materials.append(Material_list[i]) # find the corresponding material from the materials list and 
 #%%
-"""
-This section creates functions to quickly calculate the K, rho, and Cp using the materials name
-Temperature, and pressure. 
 
-I need to add in reference pressure and temperature for materials in the future. Otherwise T and P are a bit abstract
-"""
+# =============================================================================
+# This section creates functions to quickly calculate the K, rho, and Cp using the materials name
+# Temperature, and pressure. 
+# 
+# I also have functions that calculate the temperature gradient using second order finite forward euler differencing
+# For more information I recommend checking out this reference
+# http://hplgit.github.io/num-methods-for-PDEs/doc/pub/diffu/sphinx/._main_diffu001.html
+#
+# I need to add in reference pressure and temperature for materials in the future. Otherwise T and P are a bit abstract
+# =============================================================================
 
-def K(name, Temperature, Pressure):
-    index = 0
-    K_as_a_function_of_Temperature = 0
-    for i in range (0,5):
-        K_as_a_function_of_Temperature += globals()[name][i+index]*Temperature**i
+# =============================================================================
+# Functions for K, rho, and Cp follow the same pattern. The material name, temperature, and pressure is sent into the function
+# Based on the "name" parameter, the materials which have already imported are referenced for their temperature and pressure
+# coefficients. Those coefficients are used to calculate the new material property which is returned.
+# There is probably a better way to do this than cell-by-cell but for now it works fine
+# =============================================================================
+
+def K(name, Temperature, Pressure): # define a function "K" that takes a material "name", "Temperature", and "Pressure"
+    index = 0 # Create a variable named "index" and set it equal to zero. Since my material properties are stored as 5 equation polynomials, this will count from 0, 1, 2, 3, 4 for reading each polynomial constant
+    K_as_a_function_of_Temperature = 0 # Create a variable named "K_as_a_function_of_Temperature" and set it equal to zero. This will store the value of K when we calculate it
+    for i in range (0,5): # This will read the polynomial constants that define K as a function of temperature
+        K_as_a_function_of_Temperature += globals()[name][i+index]*Temperature**i # Calculate the contribution to K as a function of temperature from the ith polynomial constant (note += just adds the calculation to the existing value in K_as_a_function_of_Temperature)
         
+    # In this section we calculate the modification to the calculated K to account for pressure. So the previously calculated K is multiplied by this pressure correction term    
     Pressure_Modification = 0
     for i in range (0,5):
         Pressure_Modification += globals()[name][i+index+15]*Pressure**i
     
-    return(K_as_a_function_of_Temperature*Pressure_Modification)
-    
+    return(K_as_a_function_of_Temperature*Pressure_Modification) # Return the value of K calculated as a function of temperature and modified by multiplying by a pressure correction
+
+# rho and Cp are identical to the previously coded section for K. I wonder if there is a way to collapse this code into a single block?
+# Probably, but I'm not that good yet    
 def rho(name, Temperature, Pressure):
     index = 5
     rho_as_a_function_of_Temperature = 0
@@ -257,35 +272,76 @@ def Cp(name, Temperature, Pressure):
     
     return(Cp_as_a_function_of_Temperature*Pressure_Modification)
 
-def Temperature_Gradient(Temperature_array):
-    Thermal_Gradient = np.zeros_like(Temperature_array)
-    Thermal_Gradient[1:-1] = Temperature_array[:-2]+Temperature_array[2:]-2*Temperature_array[1:-1]
-    Thermal_Gradient[0] = Temperature_array[1]-Temperature_array[0]
-    Thermal_Gradient[-1] = Temperature_array[-2]-Temperature_array[-1]
+# =============================================================================
+# This function calculates a temperature gradient based on a passed Temperature array
+# I actually tried using numpy.gradient before hand coding it. The gradient function returned a stencil that
+# caused oscillation in an implicit solver I was trying to make so I just went back to hand coding the stencil
+# As a benefit, you can basically mess with this all you want. Maybe try third and forth order solvers if you want
+# =============================================================================
+
+def Temperature_Gradient(Temperature_array): # define a function named "Temperature_Gradient" that gets passed a temperature array
+    # Note that none of these gradients include the dx term. That can be applied later along with the diffusion and time step to calculate the actual heat flux from one cell to another. 
+    # This function just needs to return the dT term so technically it's not the gradient :< and I lied to you. The math will work out though I promise
+    Thermal_Gradient = np.zeros_like(Temperature_array) # First, create an empty array the size of the temperature array that was just passed to Temperature Gradient
+    Thermal_Gradient[1:-1] = Temperature_array[:-2]+Temperature_array[2:]-2*Temperature_array[1:-1] # This is the primary stencil and its simply the forward Euler scheme for the diffusion equation
+    # You can find more info on the stencil at the github comment I linked above the functions but wikipedia will do in a pinch
+    Thermal_Gradient[0] = Temperature_array[1]-Temperature_array[0] # Left side dT. At the edges I just use a first order discritization because effectively it's just the equation for the central difference above
+    # excep with one set of dT/dx removed. I'll have more information in a powerpoint presentation later
+    Thermal_Gradient[-1] = Temperature_array[-2]-Temperature_array[-1] # Right side dT
     
-    return(Thermal_Gradient)
+    return(Thermal_Gradient) #Return the temperature differences for the array. 
+
+# =============================================================================
+# So the above function just calculated the temperature "difference" (I know I lied it's not a gradient).
+# The following function actually calculates the heat fluxes for each cell broken out by each source
+# So this section is basically shuttling around the energy into and out of the boundaries and through each cell
+# This section is kind of like the energy balance though it's not technically conservative because it's just finite difference
+# =============================================================================
+
+def Boundary_Fluxes(Temperature_array, sim_time): # Define a function called "Boundary_Fluxes" that used a temperature array and a current time
+# The current time gets passed off to functions that interpolate the transient boundary conditions
+# Notice that all the terms begin with the Boolean statement that lets you turn them on/off, but there's not restriction to stop you from doing weird/dumb stuff so go wild
     
-def Boundary_Fluxes(Temperature_array, sim_time):
+# =============================================================================
+#     Static Boundary Fluxes from the python file
+#     The conduction section closes out the non-transient part of the Forward Euler equation
+#     Thermal conductivity is taken from the last cell so if you wanted to switch materials at the boundary (like metal plate sitting on concrete) you want to include one cell of the boundary material in the simulation
+# =============================================================================
     
-    # Static Boundary Fluxes from the python file
-    Conduction_Heatflux_left = Conduction_left*(T_wall_left-Temperature_array[0])*(K_array[0]/x_step)
-    Conduction_Heatflux_right = Conduction_right*(T_wall_right-Temperature_array[-1])*(K_array[-1]/x_step)
+    Conduction_Heatflux_left = Conduction_left*(T_wall_left-Temperature_array[0])*(K_array[0]/x_step) # Calculate the heat flux from conduction at the left boundary node
+    # Conduction_left is a boolean that turns this term on/off. T_wall_left is the boundary temperature. Temperature_array[0] is the left most cell in the simulation
+    # And the K_array[0]/x_step is the scaling for thermal conduction. I think there's like, an old british term for K/x but I don't care at this point
+    Conduction_Heatflux_right = Conduction_right*(T_wall_right-Temperature_array[-1])*(K_array[-1]/x_step) # Same as above but for the right boundary
     
-    Convection_Heatflux_left = Convection_left*(h_left*(T_conv_left-Temperature_array[0]))
-    Convection_Heatflux_right = Convection_right*(h_right*(T_conv_right-Temperature_array[-1]))
+    Convection_Heatflux_left = Convection_left*(h_left*(T_conv_left-Temperature_array[0])) # Convective boundary condition
+    # Follows the same logic as above but for convection using h_left, T_conv_left and the left most temperature of the cell array
+    Convection_Heatflux_right = Convection_right*(h_right*(T_conv_right-Temperature_array[-1])) # Same as above
     
+    # Okay, so this one is a bit weird. I need a better way to store an array of radiative temperatures and view factors. Maybe I should include wavelength dependancy but that's long term. Right now the reason I don't use an array
+    # and instead have two individually defined boundaries is because it reads the View Factors and Radiative Temperatures from columns in the excel file. I could probably add some string parsing but there's a lot of features I want to add
+    
+    # Raditive heat flux is broken out into incoming and outgoing radiation because that's way more realistic than this (T^4 - T^4) crap you find in undergrad text books. Emission and absorption are two totally different processes
+    # Radiation_Heatflux_to_Boundary_XXX is energy going into the boundary cell. So this represents all the incoming energy into the simulation. The multiple view factors lets you simulate, for example, a hot source and a background
+    # Otherwise it's just the generic radiative heating equation
     Radiation_Heatflux_to_Boundary_left = Radiation_to_Boundary_left*((absorptivity_left*View_Factor_1_left*steffan_boltzman_constant*T_rad_1_left**4)+(absorptivity_left*View_Factor_2_left*steffan_boltzman_constant*T_rad_2_left**4))
     Radiation_Heatflux_to_Boundary_right = Radiation_to_Boundary_right*((absorptivity_right*View_Factor_1_right*steffan_boltzman_constant*T_rad_1_right**4)+(absorptivity_right*View_Factor_2_right*steffan_boltzman_constant*T_rad_2_right**4))
     
+    # Outgoing Radiative heatflux is a lot simpler since you don't care about view factor. Again this could be a function of wavelength or even directionality, but starting small.
     Radiation_Heatflux_from_Boundary_left = Radiation_from_Boundary_left*(-emissivity_left*steffan_boltzman_constant*Temperature_array[0]**4)
     Radiation_Heatflux_from_Boundary_right = Radiation_from_Boundary_right*(-emissivity_right*steffan_boltzman_constant*Temperature_array[-1]**4)
     
-    Constant_Heatflux_left = Fixed_Heatflux_left*q_in_left
+    # Something to know about Radiative heatflux. If you actually have ablation it's going to severely change the effective absorptivity and emissivity because typically the outgoing gas blocks the radiation. 
+    # Just be aware that even if Radiation heatflux is present it can still be incredibly difficult to predict the effects in the presence of ablation and you'll be lucky to get +/- 20% of reality
+    
+    Constant_Heatflux_left = Fixed_Heatflux_left*q_in_left # Just a simple heatflux in/out of the boundary. This is where my calculator started a long time ago
     Constant_Heatflux_right = Fixed_Heatflux_right*q_in_right
     
-    #Transient Boundary Conditions from the excel file
+    # Transient Boundary Conditions from the excel file
+    # Down here we handle all the transient boundary conditions but only if a transient boundary condition is switched on. Otherwise this is ignored which speeds up the code
     if (Transient_Conduction_left+Transient_Convection_left+Transient_Radiation_to_Boundary_left+Transient_Radiation_from_Boundary_left+Transient_Fixed_Heatflux_left > 0): #Test if any transient boundary conditions are set to True (1)
-
+        
+        # If any of the transient boundary conditions are turned on, all of this will end up getting calculated. So make sure the transient boundary conditions is filled out. Otherwise I might have to break up the if statements and that's a lot of work
+        # Everything below here is exactly the same as the steady state, but with the words "Transient_" in front of it. Amazing how that works
         Conduction_Heatflux_left += Transient_Conduction_left*(Transient_T_wall_left(sim_time)-Temperature_array[0])*(K_array[0]/x_step)
         Convection_Heatflux_left += Transient_Convection_left*(Transient_h_left(sim_time)*(Transient_T_conv_left(sim_time)-Temperature_array[0]))
         Radiation_Heatflux_to_Boundary_left += Transient_Radiation_to_Boundary_left*((Transient_absorptivity_left(sim_time)*Transient_View_Factor_1_left(sim_time)*steffan_boltzman_constant*Transient_T_rad_1_left(sim_time)**4)+(Transient_absorptivity_left(sim_time)*Transient_View_Factor_2_left(sim_time)*steffan_boltzman_constant*Transient_T_rad_2_left(sim_time)**4))
@@ -300,89 +356,94 @@ def Boundary_Fluxes(Temperature_array, sim_time):
         Radiation_Heatflux_from_Boundary_right += Transient_Radiation_from_Boundary_right*(-Transient_emissivity_right(sim_time)*steffan_boltzman_constant*Temperature_array[-1]**4)
         Constant_Heatflux_right += Transient_Fixed_Heatflux_right*Transient_q_in_right(sim_time)
     
+    # Total all the heat fluxes together for the left and right boundary conditions
+    # Notice that the time-step hasn't come into the equation yet. So this is just the per-second heatflux
     Left_Heatflux = Conduction_Heatflux_left+Convection_Heatflux_left+Radiation_Heatflux_to_Boundary_left+Radiation_Heatflux_from_Boundary_left+Constant_Heatflux_left
     Right_Heatflux = Conduction_Heatflux_right+Convection_Heatflux_right+Radiation_Heatflux_to_Boundary_right+Radiation_Heatflux_from_Boundary_right+Constant_Heatflux_right
     
-    return(Left_Heatflux, Right_Heatflux)
-    
+    return(Left_Heatflux, Right_Heatflux) # Return the left and right heatflux
+
+# A simple function to convert temperature from Kelvin, the best unit, to fahrenheit, objectively the worst temperature unit. It's 2021 and this is still necessary to properly communicate information. I cry    
 def K_to_F(Temperature_array):
     return ((1.8*(Temperature_array-273.15))+32)
 
 #%%
-"""
-Initialize all the necessary Arrays
-"""
-Temperature_array = np.full(len(cell_materials),T_initial)
-Temperature_history = np.copy(Temperature_array)
-Heatflux_array = np.zeros(len(cell_materials))
+
+# =============================================================================
+# Initialize all the necessary Arrays
+# These are all just empty arrays/dataframes which will hold information during the calculation process
+# =============================================================================
+
+Temperature_array = np.full(len(cell_materials),T_initial) # This numpy array contains the actual temperature values for each cell during the simulation process
+# Note that it's initialized at T_initial. In the future I should make this available to be overwritten by some initial temperature function
+Heatflux_array = np.zeros(len(cell_materials)) # This stores all the heatfluxes during each calculation step (the q's if you will).
+# If you want to know the heat in/out of one of the sides, just look at Heatflux_array[0] or Heatflux_array[-1] (Left and Right BC)
+
+# These arrays store the material properties for each cell. They will get recalculated at some set time interval to keep from gumming up the solver
 K_array = np.ones_like(Temperature_array)
 rho_array = np.ones_like(Temperature_array)
 Cp_array = np.ones_like(Temperature_array)
-alpha_array = K_array/(rho_array*Cp_array)
+alpha_array = K_array/(rho_array*Cp_array) # thermal diffusivity for you cool kids
+
+# percent_ablated stores how far along the right most cell is from maximum ablation. Ablation is tracked as a reduction in density based on values in the materials database
+# Once percent_ablated goes to 100%, a copy of the Temperature_array is made without the last cell. This represents the new materials, sans the last cell which is dead
 percent_ablated = 0.0
 
-Temperature_data = pd.DataFrame(index=np.linspace(0,sum(Thickness),sum(cell_count)), columns=[0])
+# This pandas dataframe took a while to figure out. Basically it has an index of the x location for each cell and column names for the time.
+# The time is initially set to zero and a copy of the Temperature_array is stored
+# Temperature_data is used for plotting but not part of the calculations so feel free to mess with it
+Temperature_data = pd.DataFrame(index=np.linspace(0,sum(Thickness),sum(cell_count)), columns=[0]) 
+# Create a dataframe named "Temperature_data" with an index (left column for you non-panda's folks)
+# That index starts at 0 and goes to the total thickness of the original material sample. I guess in theory you could maybe add material? Another day
+# Columns = 0 just means that the first column of stored data has a time-stamp of 0s
 Temperature_data.iloc[:,0].iloc[0:Temperature_array.size]=Temperature_array
+# Fill in that initial t = 0s with the data initialized into Temperature_array
 
 #%%
-"""
-Initializing of the solution
-"""
-sim_time = 0.0
-interval = plotting_interval+1.0
-material_interval = Material_Properties_Calculation_Interval+1.0
-iteration = 0
-data_storage_index = 0
-phi = 0.5
-iteration_time = 0.0
-data = []
 
-for i in range(0,len(cell_materials)):
-    K_array[i]     = K(cell_materials[i],Temperature_array[i],P_initial)
-    rho_array[i]   = rho(cell_materials[i],Temperature_array[i],P_initial)
-    Cp_array[i]    = Cp(cell_materials[i],Temperature_array[i],P_initial)
+# =============================================================================
+# In this section we setup some basic parameters for the simulation. In the future I want to have a dedicated sheet for solve parameters that comes out with output.xlsx 
+# That should make it easier to track what the simulation was for and understanding the results
+# =============================================================================
+
+sim_time = 0.0 # Resetting the simulation time back to 0. If you wanted to simulate a rocket there's technically no reason you couldn't have this negative
+interval = 0.0 # Interval is poorly named. It actually tracks the time since the last time data was output. So it's related to plotting interval, thus the name
+material_interval = Material_Properties_Calculation_Interval+1.0 # How often material properties will be recalculated. By adding the +1 it will trigger the
+# material property calculator at the start of the simulation
+iteration = 0 # Tracks how many iterations the simulation takes. Typical simulations can be 100,000 ~ 1,000,000 iterations and runs about 200,000 iterations/minute
+t = time.time() # Store the current actual physical time for estimating how much longer is left in the simulation
+
+#%%
+
+# =============================================================================
+# This section is the actual calculation loop. Here we will take the current temperatures and heatfluxes and apply a small time_step to move energy around propotional to the heatflux * time_step
+# There are a few logic loops that mostly track time for updating material properties and exporting data for plotting
+# The ablation logic loop is the most complicated and I'll talk about it when I get to that section
+# =============================================================================
+
+while sim_time < time_final: # Continue iterations until the current simulation time is greater than the stated final time
+    iteration += 1 # at the start of each iteration, increase the iteration count by 1
     
-alpha_array = K_array/(rho_array*Cp_array)
-
-t = time.time()
-
-
-#%%
-"""
-Looping solution begins here
-"""
-
-while sim_time < time_final:
-    if (material_interval > Material_Properties_Calculation_Interval):
-        material_interval = 0.0
-        for i in range(0,len(Temperature_array)):
-            K_array[i]     = K(cell_materials[i],Temperature_array[i],P_initial)
+    # This logic loop checks if the time since the last time material properties were calculated is greater than the designated interval
+    if (material_interval > Material_Properties_Calculation_Interval): # check if the material_interval is greater than the Material_Properties_Calculation_Interval
+        material_interval = 0.0 # Once this loop has been triggered, reset the material_interval back to zero
+        for i in range(0,len(Temperature_array)): # Go cell-by-cell recalculating the material properties. I really need to switch this from linear to doing the whole array at once
+            K_array[i]     = K(cell_materials[i],Temperature_array[i],P_initial) # Pass the cell material, temperature, and P_initial (this should switch to pressure instead of P_initial. Might need a loop for Pressure(time))
             rho_array[i]   = rho(cell_materials[i],Temperature_array[i],P_initial)
             Cp_array[i]    = Cp(cell_materials[i],Temperature_array[i],P_initial)
         alpha_array = K_array/(rho_array*Cp_array)
-        data.append(Temperature_array[0])
-        
-    
-    iteration += 1
-    """
-    Initialize the Material properties arrays
-    """
-    
-    """
-    Calculate the conductive heat fluxes
-    """
-    
-    Conductive_Heatflux = Temperature_Gradient(Temperature_array)*K_array/x_step
-    Boundary_Heat_Flux = Boundary_Fluxes(Temperature_array, sim_time)
-        
-    Heatflux_array = Conductive_Heatflux/(rho_array*Cp_array*x_step)
+
+    Conductive_Heatflux = Temperature_Gradient(Temperature_array)*K_array/x_step # Calculate the heatflux from conduction by calculating the temperature difference with "Temperature_Gradient" (not a gradient) and then scaling by K/dx to get heatflux
+    Boundary_Heat_Flux = Boundary_Fluxes(Temperature_array, sim_time) # Calculate the boundary heat flux from the temperature array and the simulation time
+
+    Heatflux_array = Conductive_Heatflux/(rho_array*Cp_array*x_step) 
     Heatflux_array[0] += (Boundary_Heat_Flux[0])/(rho_array[0]*Cp_array[0]*x_step)
     Heatflux_array[-1] += (Boundary_Heat_Flux[1])/(rho_array[-1]*Cp_array[-1]*x_step)
-    
+
     time_step = (0.5*x_step**2)/np.max(alpha_array)
-    
-    Temperature_array += time_step*Heatflux_array  
-    
+
+    Temperature_array += time_step*Heatflux_array
+
     if (Ablation == True) and (Materials[cell_materials[-1]]["Ablates"]==True) and (Temperature_array[-1]>Materials[cell_materials[-1]]["T_ab"]):
         percent_ablated += ((Temperature_array[-1]-Materials[cell_materials[-1]]["T_ab"])*Cp_array[-1]*rho_array[-1]/Materials[cell_materials[-1]]["h_ab"])/rho_array[-1]
         Temperature_array[-1] = Materials[cell_materials[-1]]["T_ab"]
@@ -402,7 +463,6 @@ while sim_time < time_final:
     if interval > plotting_interval:
         Temperature_data[str(np.around(sim_time))] = np.nan
         Temperature_data.iloc[:,-1].iloc[:Temperature_array.size]=Temperature_array.tolist()
-        data_storage_index += 1
         interval = 0.0
         Remaining_iterations = (time_final-sim_time)/time_step
         Remaining_time = Remaining_iterations*((time.time()-t)/iteration)
