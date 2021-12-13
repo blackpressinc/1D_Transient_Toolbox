@@ -20,8 +20,8 @@ import matplotlib.pyplot as plt
 # each iteration. Once that variable exceeds the time_final, the simulation ends. You may want to add 1 second to the final time just because the 
 # once the time_final is exceeded by sim_time the simulation ends /before/ it gets to the data saving loop. So it might not save the last data point
 # =============================================================================
-time_final = 181.0 #[s]
-plotting_interval = 20.0 #[s] Data will ***saved*** be plotted at this interval. Note that this controls when data is saved
+time_final = 300.0 #[s]
+plotting_interval = 10.0 #[s] Data will ***saved*** be plotted at this interval. Note that this controls when data is saved
 T_initial = 274.0 #[K] All cells in the simulation will be initialized with this value. Once the Temperature_array has been created, you can add a custom temperature function or something
 # but I have not yet coded that
 P_initial = 1.0 #[atm] #pressure needs to be re-worked so that it can be made a function of time. This just acts as a place holder
@@ -37,15 +37,15 @@ Material_Properties_Calculation_Interval = 1.0 #[s]
 # Material list is just strings that have to match with the some name in the first row of the Material_Properties.xlsx
 # Thickness is the total thickness of each material in millimeters (I will never use english to define a property god help me)
 # =============================================================================
-Material_list = ["T792","A12","P50"]
-Thickness = np.array([3.15,0.25,10.0]) #[mm] Array defining the thickness of the individual layers
+Material_list = ["SS316","A12"]
+Thickness = np.array([1,0.1]) #[mm] Array defining the thickness of the individual layers
 
 # =============================================================================
 # These parameters actually setup the simulation mesh. Whichever is the tightest requirement will be used
 # You can make a layer as thin as you want but timestep gets smaller as a function of the smallest cell thickness squared dt ≈ 1/(dx^2)
 # =============================================================================
 minimum_cell_count_per_layer = 4 #Thinnest Layer will be used to calculate dx for the mesh
-maximum_cell_size = 0.05 #[mm] Cells will not be made larger than this value
+maximum_cell_size = 0.1 #[mm] Cells will not be made larger than this value
 
 #%%
 # =============================================================================
@@ -67,7 +67,7 @@ maximum_cell_size = 0.05 #[mm] Cells will not be made larger than this value
 # =============================================================================
 # You can turn Ablation on/off with this boolean
 # =============================================================================
-Ablation = True
+Ablation = False
 
 # =============================================================================
 # This section defines the static left boundary conditions
@@ -88,15 +88,15 @@ Ablation = True
 # Note that transient boundary conditions is essentially a copy of these boundary conditions but as a function of time
 # =============================================================================
 #Left Boundary Conditions
-T_wall_left = 270 #[K]
-h_left = 20 #[W/m²·K]
-T_conv_left = 266.483 #[K]
+T_wall_left = 450 #[K]
+h_left = 10 #[W/m²·K]
+T_conv_left = 450 #[K]
 emissivity_left = 0.03
 absorptivity_left = 0.03
-View_Factor_1_left = 0.5
+View_Factor_1_left = 1.0
 View_Factor_2_left = 1 - View_Factor_1_left
-T_rad_1_left = 300 #[K]
-T_rad_2_left = 300 #[K]
+T_rad_1_left = 270 #[K]
+T_rad_2_left = 270 #[K]
 q_in_left = 250 #[W/m²]
 
 # =============================================================================
@@ -143,25 +143,25 @@ if (Transient_Conduction_left+Transient_Convection_left+Transient_Radiation_to_B
 #Right Boundary Conditions
 T_wall_right = 310 #[K]
 h_right = 25 #[W/m²·K]
-T_conv_right = 310 #[K]
-emissivity_right = 0.9
-absorptivity_right = 0.9
-View_Factor_1_right = 0.44
+T_conv_right = 300 #[K]
+emissivity_right = 0.05
+absorptivity_right = 0.05
+View_Factor_1_right = 1.0
 View_Factor_2_right = 1 - View_Factor_1_right
-T_rad_1_right = 2200 #[K]
-T_rad_2_right = 300 #[K]
-q_in_right = 600000 #[W/m²]
+T_rad_1_right = 800 #[K]
+T_rad_2_right = 800 #[K]
+q_in_right = 17500 #[W/m²]
 
 Conduction_right = False
 Convection_right = False
-Radiation_to_Boundary_right = False
-Radiation_from_Boundary_right = False
+Radiation_to_Boundary_right = True
+Radiation_from_Boundary_right = True
 Fixed_Heatflux_right = False
 
 Transient_Conduction_right = False
-Transient_Convection_right = True
-Transient_Radiation_to_Boundary_right = True
-Transient_Radiation_from_Boundary_right = True
+Transient_Convection_right = False
+Transient_Radiation_to_Boundary_right = False
+Transient_Radiation_from_Boundary_right = False
 Transient_Fixed_Heatflux_right = False
 
 if (Transient_Conduction_right+Transient_Convection_right+Transient_Radiation_to_Boundary_right+Transient_Radiation_from_Boundary_right+Transient_Fixed_Heatflux_right > 0):
@@ -183,7 +183,7 @@ if (Transient_Conduction_right+Transient_Convection_right+Transient_Radiation_to
 #In the future this should just be loaded in as a default materials database stored in excel
 # =============================================================================
 
-Materials = pd.read_excel('Material_Properties.xlsx',index_col=(0),usecols=("C:W"),skiprows=(0)) #Note that you can use "usecols" to just select a subset of 
+Materials = pd.read_excel('Material_Properties.xlsx',index_col=(0),usecols=("C:ZZ"),skiprows=(0)) #Note that you can use "usecols" to just select a subset of 
 # columns or rows in microsoft excel. So in this case, it's skipping the first row, using the first column as the index, but the first column
 # is actually column C and it goes to column W. So columns A and B are just ignored
 
@@ -396,7 +396,7 @@ Temperature_data = pd.DataFrame(index=np.linspace(0,sum(Thickness),sum(cell_coun
 # Create a dataframe named "Temperature_data" with an index (left column for you non-panda's folks)
 # That index starts at 0 and goes to the total thickness of the original material sample. I guess in theory you could maybe add material? Another day
 # Columns = 0 just means that the first column of stored data has a time-stamp of 0s
-Temperature_data.iloc[:,0].iloc[0:Temperature_array.size]=Temperature_array
+# Temperature_data.iloc[:,0].iloc[0:Temperature_array.size]=Temperature_array
 # Fill in that initial t = 0s with the data initialized into Temperature_array
 
 #%%
@@ -407,7 +407,7 @@ Temperature_data.iloc[:,0].iloc[0:Temperature_array.size]=Temperature_array
 # =============================================================================
 
 sim_time = 0.0 # Resetting the simulation time back to 0. If you wanted to simulate a rocket there's technically no reason you couldn't have this negative
-interval = 0.0 # Interval is poorly named. It actually tracks the time since the last time data was output. So it's related to plotting interval, thus the name
+interval = plotting_interval + 1 # Interval is poorly named. It actually tracks the time since the last time data was output. So it's related to plotting interval, thus the name
 material_interval = Material_Properties_Calculation_Interval+1.0 # How often material properties will be recalculated. By adding the +1 it will trigger the
 # material property calculator at the start of the simulation
 iteration = 0 # Tracks how many iterations the simulation takes. Typical simulations can be 100,000 ~ 1,000,000 iterations and runs about 200,000 iterations/minute
@@ -460,7 +460,7 @@ while sim_time < time_final: # Continue iterations until the current simulation 
     material_interval += time_step
     sim_time = sim_time + time_step
     
-    if interval > plotting_interval:
+    if interval > plotting_interval :
         Temperature_data[str(np.around(sim_time))] = np.nan
         Temperature_data.iloc[:,-1].iloc[:Temperature_array.size]=Temperature_array.tolist()
         interval = 0.0
@@ -481,11 +481,14 @@ fig1, plt.tight_layout()
 for j in range(0,Thickness.size):
     fig1, plt.axvline(np.sum(Thickness[0:j+1]), color = "black", lw=1)
 fig1, plt.axvline(Temperature_data_F.iloc[:,-1].count()*x_step*1000, color = "black", linestyle = '--', lw = 1)
-fig1, plt.axhline(Temperature_data_F.iloc[0,: ].max()              , color = "red"  , linestyle = '--', lw = 1)
-fig1, plt.yticks(list(plt.yticks()[0])+[Temperature_data_F.iloc[0,:].max()])
+#fig1, plt.axhline(Temperature_data_F.iloc[0,: ].max()              , color = "red"  , linestyle = '--', lw = 1)
+#fig1, plt.axhline(Temperature_data_F.max().max()                   , color = "red"  , linestyle = '--', lw = 1)
+fig1, plt.axhline(Temperature_data_F.iloc[-1,: ].max()              , color = "red"  , linestyle = '--', lw = 1)
+fig1, plt.yticks(list(plt.yticks()[0])+[Temperature_data_F.iloc[-1,: ].max()])
+#fig1, plt.yticks(list(plt.yticks()[0])+[Temperature_data_F.iloc[0,:].max()]+[Temperature_data_F.max().max()])
 fig1, plt.xticks(list(plt.xticks()[0])+[Temperature_data.iloc[:,0].last_valid_index()]+[Temperature_data.iloc[:,-1].last_valid_index()])
 fig1, plt.xlim([0,np.sum(Thickness)])
-fig1, plt.ylim([0,1200])
+#fig1, plt.ylim([np.min(np.min(np.floor(Temperature_data_F/100)))*100,np.max(np.max(np.ceil(Temperature_data_F/100)))*100])
 
 #%%
 Temperature_data.to_excel("output.xlsx", sheet_name = "output", na_rep = '')
