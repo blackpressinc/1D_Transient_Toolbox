@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 # each iteration. Once that variable exceeds the time_final, the simulation ends. You may want to add 1 second to the final time just because the 
 # once the time_final is exceeded by sim_time the simulation ends /before/ it gets to the data saving loop. So it might not save the last data point
 # =============================================================================
-time_final = 300.0 #[s]
+time_final = 41.0 #[s]
 plotting_interval = 10.0 #[s] Data will ***saved*** be plotted at this interval. Note that this controls when data is saved
 T_initial = 274.0 #[K] All cells in the simulation will be initialized with this value. Once the Temperature_array has been created, you can add a custom temperature function or something
 # but I have not yet coded that
@@ -37,8 +37,8 @@ Material_Properties_Calculation_Interval = 1.0 #[s]
 # Material list is just strings that have to match with the some name in the first row of the Material_Properties.xlsx
 # Thickness is the total thickness of each material in millimeters (I will never use english to define a property god help me)
 # =============================================================================
-Material_list = ["SS316","A12"]
-Thickness = np.array([1,0.1]) #[mm] Array defining the thickness of the individual layers
+Material_list = ["T792","FlexcoreF40","T792"]
+Thickness = np.array([0.9,25.4,0.9]) #[mm] Array defining the thickness of the individual layers
 
 # =============================================================================
 # These parameters actually setup the simulation mesh. Whichever is the tightest requirement will be used
@@ -67,7 +67,7 @@ maximum_cell_size = 0.1 #[mm] Cells will not be made larger than this value
 # =============================================================================
 # You can turn Ablation on/off with this boolean
 # =============================================================================
-Ablation = False
+Ablation = True
 
 # =============================================================================
 # This section defines the static left boundary conditions
@@ -88,9 +88,9 @@ Ablation = False
 # Note that transient boundary conditions is essentially a copy of these boundary conditions but as a function of time
 # =============================================================================
 #Left Boundary Conditions
-T_wall_left = 450 #[K]
+T_wall_left = 300 #[K]
 h_left = 10 #[W/m²·K]
-T_conv_left = 450 #[K]
+T_conv_left = 265 #[K]
 emissivity_left = 0.03
 absorptivity_left = 0.03
 View_Factor_1_left = 1.0
@@ -120,7 +120,7 @@ Transient_Fixed_Heatflux_left = False
 # =============================================================================
 #Left Transient Boundary Conditions
 if (Transient_Conduction_left+Transient_Convection_left+Transient_Radiation_to_Boundary_left+Transient_Radiation_from_Boundary_left+Transient_Fixed_Heatflux_left > 0): #Test if any transient boundary conditions are set to True (1)
-    Left_Transient_BC = pd.read_excel('Example_Transient_Boundary_Conditions.xlsx',index_col=0,skiprows=1,header=1) #If transient boundary conditions are being used, load
+    Left_Transient_BC = pd.read_excel('Transient_Boundary_Conditions_for_Alpha_Flight_S1.xlsx',index_col=0,skiprows=1,header=1) #If transient boundary conditions are being used, load
     # an excel sheet, skipping the first row and using the second row as the headers for a pandas database. The first column is used as the index
     # The example transient boundary conditions should be Transient_Boundary_Conditions_for_Alpha_Flight002_Hotfire_S1.xlsx
 
@@ -141,19 +141,20 @@ if (Transient_Conduction_left+Transient_Convection_left+Transient_Radiation_to_B
 # The Right Boundary Conditions section is an exact copy of the Left_Boundary_Conditions section but with the words "right"
 # =============================================================================
 #Right Boundary Conditions
-T_wall_right = 310 #[K]
+
+T_wall_right = 300 #[K]
 h_right = 25 #[W/m²·K]
 T_conv_right = 300 #[K]
-emissivity_right = 0.05
-absorptivity_right = 0.05
-View_Factor_1_right = 1.0
+emissivity_right = 0.8
+absorptivity_right = 0.8
+View_Factor_1_right = 0.5
 View_Factor_2_right = 1 - View_Factor_1_right
 T_rad_1_right = 800 #[K]
-T_rad_2_right = 800 #[K]
+T_rad_2_right = 300 #[K]
 q_in_right = 17500 #[W/m²]
 
 Conduction_right = False
-Convection_right = False
+Convection_right = True
 Radiation_to_Boundary_right = True
 Radiation_from_Boundary_right = True
 Fixed_Heatflux_right = False
@@ -166,7 +167,7 @@ Transient_Fixed_Heatflux_right = False
 
 if (Transient_Conduction_right+Transient_Convection_right+Transient_Radiation_to_Boundary_right+Transient_Radiation_from_Boundary_right+Transient_Fixed_Heatflux_right > 0):
 #Right Transient Boundary Conditions
-    Right_Transient_BC = pd.read_excel('Example_Transient_Boundary_Conditions.xlsx',index_col=0,skiprows=1,header=1)
+    Right_Transient_BC = pd.read_excel('Transient_Boundary_Conditions_for_Alpha_Flight_S1.xlsx',index_col=0,skiprows=1,header=1)
 
     for col in Right_Transient_BC.columns:
         globals()["Transient_"+str(col)+"_right"]=interpolate.interp1d(Right_Transient_BC.index.to_numpy(dtype=float),Right_Transient_BC[col].to_numpy(dtype=float))
@@ -396,7 +397,7 @@ Temperature_data = pd.DataFrame(index=np.linspace(0,sum(Thickness),sum(cell_coun
 # Create a dataframe named "Temperature_data" with an index (left column for you non-panda's folks)
 # That index starts at 0 and goes to the total thickness of the original material sample. I guess in theory you could maybe add material? Another day
 # Columns = 0 just means that the first column of stored data has a time-stamp of 0s
-# Temperature_data.iloc[:,0].iloc[0:Temperature_array.size]=Temperature_array
+Temperature_data.iloc[:,0].iloc[0:Temperature_array.size]=Temperature_array
 # Fill in that initial t = 0s with the data initialized into Temperature_array
 
 #%%
@@ -492,3 +493,4 @@ fig1, plt.xlim([0,np.sum(Thickness)])
 
 #%%
 Temperature_data.to_excel("output.xlsx", sheet_name = "output", na_rep = '')
+Temperature_data.to_csv("output.csv",sep=',')
