@@ -30,15 +30,15 @@ steffan_boltzman_constant = 5.67*10**-8 #used for radiation calculations
 # This solver supports transient material properties where available but calculating them each iteration makes the solver incredibly slow
 # So you can set a time to recalculate the material properties every X seconds
 # =============================================================================
-Material_Properties_Calculation_Interval = 1.0 #[s]
+Material_Properties_Calculation_Interval = 0.1 #[s]
 
 # =============================================================================
 # This is the actual material stackup you are simulating. Materials are assigned left to right based on the thicknesses. 
 # Material list is just strings that have to match with the some name in the first row of the Material_Properties.xlsx
 # Thickness is the total thickness of each material in millimeters (I will never use english to define a property god help me)
 # =============================================================================
-Material_list = ["T792","FlexcoreF40","T792"]
-Thickness = np.array([0.9,25.4,0.9]) #[mm] Array defining the thickness of the individual layers
+Material_list = ["T792","A12","P50"]
+Thickness = np.array([3.1,0.2,10]) #[mm] Array defining the thickness of the individual layers
 
 # =============================================================================
 # These parameters actually setup the simulation mesh. Whichever is the tightest requirement will be used
@@ -90,7 +90,7 @@ Ablation = True
 #Left Boundary Conditions
 T_wall_left = 300 #[K]
 h_left = 10 #[W/m²·K]
-T_conv_left = 265 #[K]
+T_conv_left = 273 #[K]
 emissivity_left = 0.03
 absorptivity_left = 0.03
 View_Factor_1_left = 1.0
@@ -149,7 +149,7 @@ emissivity_right = 0.8
 absorptivity_right = 0.8
 View_Factor_1_right = 0.5
 View_Factor_2_right = 1 - View_Factor_1_right
-T_rad_1_right = 800 #[K]
+T_rad_1_right = 2200 #[K]
 T_rad_2_right = 300 #[K]
 q_in_right = 17500 #[W/m²]
 
@@ -393,7 +393,7 @@ percent_ablated = 0.0
 # This pandas dataframe took a while to figure out. Basically it has an index of the x location for each cell and column names for the time.
 # The time is initially set to zero and a copy of the Temperature_array is stored
 # Temperature_data is used for plotting but not part of the calculations so feel free to mess with it
-Temperature_data = pd.DataFrame(index=np.linspace(0,sum(Thickness),sum(cell_count)), columns=[0]) 
+Temperature_data = pd.DataFrame(index=np.linspace(0,sum(Thickness),int(sum(cell_count))), columns=[0], copy=True) 
 # Create a dataframe named "Temperature_data" with an index (left column for you non-panda's folks)
 # That index starts at 0 and goes to the total thickness of the original material sample. I guess in theory you could maybe add material? Another day
 # Columns = 0 just means that the first column of stored data has a time-stamp of 0s
@@ -426,27 +426,48 @@ while sim_time < time_final: # Continue iterations until the current simulation 
     iteration += 1 # at the start of each iteration, increase the iteration count by 1
     
     # This logic loop checks if the time since the last time material properties were calculated is greater than the designated interval
-    if (material_interval > Material_Properties_Calculation_Interval): # check if the material_interval is greater than the Material_Properties_Calculation_Interval
+    if (material_interval < Material_Properties_Calculation_Interval): # check if the material_interval is greater than the Material_Properties_Calculation_Interval
         material_interval = 0.0 # Once this loop has been triggered, reset the material_interval back to zero
         for i in range(0,len(Temperature_array)): # Go cell-by-cell recalculating the material properties. I really need to switch this from linear to doing the whole array at once
             K_array[i]     = K(cell_materials[i],Temperature_array[i],P_initial) # Pass the cell material, temperature, and P_initial (this should switch to pressure instead of P_initial. Might need a loop for Pressure(time))
-            rho_array[i]   = rho(cell_materials[i],Temperature_array[i],P_initial)
-            Cp_array[i]    = Cp(cell_materials[i],Temperature_array[i],P_initial)
-        alpha_array = K_array/(rho_array*Cp_array)
+            rho_array[i]   = rho(cell_materials[i],Temperature_array[i],P_initial) # Same as above
+            Cp_array[i]    = Cp(cell_materials[i],Temperature_array[i],P_initial) # Same as above
+        alpha_array = K_array/(rho_array*Cp_array) # Calculate the thermal diffusivity from the new material properties
 
     Conductive_Heatflux = Temperature_Gradient(Temperature_array)*K_array/x_step # Calculate the heatflux from conduction by calculating the temperature difference with "Temperature_Gradient" (not a gradient) and then scaling by K/dx to get heatflux
     Boundary_Heat_Flux = Boundary_Fluxes(Temperature_array, sim_time) # Calculate the boundary heat flux from the temperature array and the simulation time
 
-    Heatflux_array = Conductive_Heatflux/(rho_array*Cp_array*x_step) 
-    Heatflux_array[0] += (Boundary_Heat_Flux[0])/(rho_array[0]*Cp_array[0]*x_step)
-    Heatflux_array[-1] += (Boundary_Heat_Flux[1])/(rho_array[-1]*Cp_array[-1]*x_step)
+    Heatflux_array = Conductive_Heatflux/(rho_array*Cp_array*x_step) # This is once again miss-labeled but it calculates the actual temperature rise per second for each cell from the heatflux we calculated earlier
+    Heatflux_array[0] += (Boundary_Heat_Flux[0])/(rho_array[0]*Cp_array[0]*x_step) # This adds the effects of the boundary conditions on the temperature rise at the boundaries
+    Heatflux_array[-1] += (Boundary_Heat_Flux[1])/(rho_array[-1]*Cp_array[-1]*x_step) # same as above
 
-    time_step = (0.5*x_step**2)/np.max(alpha_array)
+    time_step = (0.5*x_step**2)/np.max(alpha_array) # Calculate the appropriate timestep for a forward Euler solver that maintains stability. This is all based on the previously mentioned github document
 
-    Temperature_array += time_step*Heatflux_array
+    Temperature_array += time_step*Heatflux_array # Take the calculated dT/dt and multiply by the calculated time_step to get the change in temperature for each cell for this time step
 
-    if (Ablation == True) and (Materials[cell_materials[-1]]["Ablates"]==True) and (Temperature_array[-1]>Materials[cell_materials[-1]]["T_ab"]):
+# =============================================================================
+#     The following section controls the logic for ablation. First ablation has to be turned on, thus the Ablation == True
+#     Second, the material which makes up the outer right boundary has to actually be able to ablate. That's something set in the materials database
+#     Finally, that cell also needs to be above it's ablation temperature for ablation to begin, If all three conditions are satisfied, then we calculate
+#     ablation for the outermost cell layer
+# =============================================================================
+    
+    if (Ablation == True) and (Materials[cell_materials[-1]]["Ablates"]==True) and (Temperature_array[-1]>Materials[cell_materials[-1]]["T_ab"]): # Check to see if ablation is on, if the last cell on the right can ablate, and if its temperature is high enough to ablate
+        
+# =============================================================================
+#         This section actually tracks the ablation. What is happening here is, however much hotter than the ablation temperature the cell becomes, an equivalent mass of the material is removed
+#         such that the temperature difference above the ablation temperature times the heat of ablation times the mass removal would leave the remaining material at the ablation temperature.
+#         i.e. any heat above the ablation temperature just removes mass such that the heat of ablation would cancel out that extra heat
+# =============================================================================
+        
+        # percent_ablated is cumulative starting from 0.00 so each iteration maybe 0.1% of the outer layer ablates and percent_ablated keeps track of that change
         percent_ablated += ((Temperature_array[-1]-Materials[cell_materials[-1]]["T_ab"])*Cp_array[-1]*rho_array[-1]/Materials[cell_materials[-1]]["h_ab"])/rho_array[-1]
+        
+        # Update the last cells density using the outer cells material, temperature, and pressure to calculate the baseline density and then multiply by the percentage ablated to get the new current density
+        # I update the material properties of the final cell every iteration just because its the cell most likely to undergo rapid temperature changes that might not get caught by the default material properties update loop
+        rho_array[-1] = rho(cell_materials[-1],Temperature_array[-1],P_initial)*(1.0-percent_ablated)
+        K_array[-1] = K(cell_materials[-1],Temperature_array[-1],P_initial)
+        Cp_array[-1] = Cp(cell_materials[-1],Temperature_array[-1],P_initial)
         Temperature_array[-1] = Materials[cell_materials[-1]]["T_ab"]
         
         if (percent_ablated > Materials[cell_materials[-1]]["percent_available"]):
