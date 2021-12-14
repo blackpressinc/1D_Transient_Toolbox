@@ -426,7 +426,7 @@ while sim_time < time_final: # Continue iterations until the current simulation 
     iteration += 1 # at the start of each iteration, increase the iteration count by 1
     
     # This logic loop checks if the time since the last time material properties were calculated is greater than the designated interval
-    if (material_interval < Material_Properties_Calculation_Interval): # check if the material_interval is greater than the Material_Properties_Calculation_Interval
+    if (material_interval > Material_Properties_Calculation_Interval): # check if the material_interval is greater than the Material_Properties_Calculation_Interval
         material_interval = 0.0 # Once this loop has been triggered, reset the material_interval back to zero
         for i in range(0,len(Temperature_array)): # Go cell-by-cell recalculating the material properties. I really need to switch this from linear to doing the whole array at once
             K_array[i]     = K(cell_materials[i],Temperature_array[i],P_initial) # Pass the cell material, temperature, and P_initial (this should switch to pressure instead of P_initial. Might need a loop for Pressure(time))
@@ -468,50 +468,68 @@ while sim_time < time_final: # Continue iterations until the current simulation 
         rho_array[-1] = rho(cell_materials[-1],Temperature_array[-1],P_initial)*(1.0-percent_ablated)
         K_array[-1] = K(cell_materials[-1],Temperature_array[-1],P_initial)
         Cp_array[-1] = Cp(cell_materials[-1],Temperature_array[-1],P_initial)
+        
+        # Update the outer layer Temperature to just be the ablation temperature
         Temperature_array[-1] = Materials[cell_materials[-1]]["T_ab"]
         
-        if (percent_ablated > Materials[cell_materials[-1]]["percent_available"]):
-            percent_ablated = 0.0
-            Temperature_array = Temperature_array[:-1]
-            K_array = K_array[:-1]
-            rho_array = rho_array[:-1]
-            Cp_array = Cp_array[:-1]
-            alpha_array = alpha_array[:-1]
+        # This section actually destroys the outermost cell if the density of the material gets low enough
+        # It compared the current percent ablated against the maximum allowable percent ablated and, if the current percent_ablated is above the material limit for percent ablated, destroys that cell
+        if (percent_ablated > Materials[cell_materials[-1]]["percent_available"]): # check if ablation is more than the limit
+            percent_ablated = 0.0 # reset percent ablated 
+            Temperature_array = Temperature_array[:-1] # Set temperature array to be a copy of itself but excluding the outer most cell. This effectively destroys that cell since everything is driven by temperature array
+            K_array = K_array[:-1] # recalculate K array for the new temperature_array size
+            rho_array = rho_array[:-1] # same as above
+            Cp_array = Cp_array[:-1] # same as above
+            alpha_array = alpha_array[:-1] # same as above
     
-    interval += time_step
-    material_interval += time_step
-    sim_time = sim_time + time_step
+    interval += time_step # Add the current time_step to interval for tracking when data should be plotted and saved
+    material_interval += time_step # Same as above but for recalculating material properties
+    sim_time += time_step # Same as above but for total simulation time
     
-    if interval > plotting_interval :
-        Temperature_data[str(np.around(sim_time))] = np.nan
-        Temperature_data.iloc[:,-1].iloc[:Temperature_array.size]=Temperature_array.tolist()
-        interval = 0.0
-        Remaining_iterations = (time_final-sim_time)/time_step
-        Remaining_time = Remaining_iterations*((time.time()-t)/iteration)
-        print("sim_time = %3.4f (s), time_step = %3.6f (s), remaining_iterations = %6.0f, remaining_time = %4.1f minutes"%(sim_time,time_step, Remaining_iterations, Remaining_time/(60)))
+    if interval > plotting_interval: # If the interval is larger than the plotting interval, save the data out
+        Temperature_data[str(np.around(sim_time))] = np.nan # Create a pandas dataframe of nans (this triggers when the simulaiton states because I set interval = plotting_interval + 1 earlier)
+        Temperature_data.iloc[:,-1].iloc[:Temperature_array.size]=Temperature_array.tolist() # Store the current Temperature_array into the Temperature_data dataframe
+        interval = 0.0 # Reset the interval to zero
+        Remaining_iterations = (time_final-sim_time)/time_step # Estimate the remaining iterations by calculating the remaining simulation time and dividing by the current time_steps (not super accurate)
+        Remaining_time = Remaining_iterations*((time.time()-t)/iteration) # Estimate the remaining time from the remaining iteraitons multiplied by the average iteration time since starting (First time estimate is garbage but subsequent estimates are very accurate)
+        print("sim_time = %3.4f (s), time_step = %3.6f (s), remaining_iterations = %6.0f, remaining_time = %4.1f minutes"%(sim_time,time_step, Remaining_iterations, Remaining_time/(60))) # print out some data to let the user know the calculator is running and
+        # generally just to understand if this simulation will take forever
 
 
 #%%
-Temperature_data_F = K_to_F(Temperature_data)
+# =============================================================================
+# At this point all the temperature data has been written to a pandas database named "Temperature_data" so now we plot the information
+# =============================================================================
 
-fig1 = Temperature_data_F.plot(figsize = [11,8],legend=False);
-plt.ylabel("Temperature (F)")
-plt.xlabel("thickness (mm)")
-if (Temperature_data.shape[1]<20.0):
-    fig1, plt.legend(bbox_to_anchor=(1.05, 1.0), loc='upper left')
-fig1, plt.tight_layout()
-for j in range(0,Thickness.size):
-    fig1, plt.axvline(np.sum(Thickness[0:j+1]), color = "black", lw=1)
-fig1, plt.axvline(Temperature_data_F.iloc[:,-1].count()*x_step*1000, color = "black", linestyle = '--', lw = 1)
-#fig1, plt.axhline(Temperature_data_F.iloc[0,: ].max()              , color = "red"  , linestyle = '--', lw = 1)
-#fig1, plt.axhline(Temperature_data_F.max().max()                   , color = "red"  , linestyle = '--', lw = 1)
-fig1, plt.axhline(Temperature_data_F.iloc[-1,: ].max()              , color = "red"  , linestyle = '--', lw = 1)
-fig1, plt.yticks(list(plt.yticks()[0])+[Temperature_data_F.iloc[-1,: ].max()])
-#fig1, plt.yticks(list(plt.yticks()[0])+[Temperature_data_F.iloc[0,:].max()]+[Temperature_data_F.max().max()])
-fig1, plt.xticks(list(plt.xticks()[0])+[Temperature_data.iloc[:,0].last_valid_index()]+[Temperature_data.iloc[:,-1].last_valid_index()])
-fig1, plt.xlim([0,np.sum(Thickness)])
-#fig1, plt.ylim([np.min(np.min(np.floor(Temperature_data_F/100)))*100,np.max(np.max(np.ceil(Temperature_data_F/100)))*100])
+# Convert temperature to heretic units
+Temperature_data_F = K_to_F(Temperature_data) # convert K to °F
+
+fig1 = Temperature_data_F.plot(figsize = [11,8],legend=False); # Plot the Temperature_data on a figure sized 11" by 8" without a legend
+plt.ylabel("Temperature (F)") # the y axis is temperature in °F
+plt.xlabel("thickness (mm)") # the x axis is the location within the material stackup in mm
+if (Temperature_data.shape[1]<20.0): # if there is more than 20 time series just don't plot the legend otherwise the figure gets messed up
+    labels = ["t = " + s for s in fig1.get_legend_handles_labels()[1]] # get the current legend labels from fig1 ([0] is handles which is each line and [1] is the label of said line)
+    # for whatever reason we have to use "string comprehension" because fig1.get_legend_handles_labels is a method and you cant just work with them directly so this code morphs them into a list of strings (I guess)
+    fig1, plt.legend(labels = labels, bbox_to_anchor=(1.0, 1.01), loc='upper left') # Create an invisible box whos upper left corner starts at x = 1 plot width, y = 1.01 plot width
+    # Put the lengend in this invisible box, anchored to the upper left corner
+
+fig1, plt.tight_layout() # Add a tight layout to the plot because space is at a premium
+
+for j in range(0,Thickness.size): # This code calculates how many materials you have specified by figuring out how many discreet entries there are in the "Thickness" array
+    fig1, plt.axvline(np.sum(Thickness[0:j+1]), color = "black", lw=1) # Once per entry in the thickness array draw a black, vertical line at the x-position corresponding to the last cell of that particular material
+    # This just makes it a lot easier to visualize where each material is in the stackup. Maybe I should fill in the background different ot something as well
+    
+# These are some handy plotting functions for maximuum temperatures and material thicknesses at various points. I turn them on/off with comments like a pleb
+fig1, plt.axvline(Temperature_data_F.iloc[:,-1].count()*x_step*1000, color = "black", linestyle = '--', lw = 1) # Add a dashed vertical line (axvline) at the x position of the last cell in the simulation. Makes it easier to see the final point of ablation
+#fig1, plt.axhline(Temperature_data_F.iloc[0,: ].max()              , color = "red"  , linestyle = '--', lw = 1) # Add a red, dashed horizontal line at the maximum temperature point of the left most cell. Good for checking on peak temperatures that made it through the materials
+#fig1, plt.axhline(Temperature_data_F.max().max()                   , color = "red"  , linestyle = '--', lw = 1) # Add a red, dashed horizontal line at the location of maximum temperature in the entire simulation. Good for checking peak temperatures during transient runs
+#fig1, plt.axhline(Temperature_data_F.iloc[-1,: ].max()              , color = "red"  , linestyle = '--', lw = 1) # Add a red, dashed horizontal line at the peak temperature of the right boundary condition. Doesn't work with ablation because most of those temps are nan
+#fig1, plt.yticks(list(plt.yticks()[0])+[Temperature_data_F.iloc[-1,: ].max()]) # This takes the list of y-axis labels and adds a label for the peak temperature reached by the right boundary condition cell. Also doesn't work with ablation because most of the cells are nan
+fig1, plt.yticks(list(plt.yticks()[0])+[Temperature_data_F.iloc[0,:].max()]+[Temperature_data_F.max().max()]) # Takes the y-axis labels and adds a label for the maximum temperature of the left boundary and the maximum overall simulation temperature
+fig1, plt.xticks(list(plt.xticks()[0])+[Temperature_data.iloc[:,0].last_valid_index()]+[Temperature_data.iloc[:,-1].last_valid_index()]) # Adds a label on the x-axis for the last valid temperature data on the last recorded timestep. This should be equal to the ablation depth
+fig1, plt.xlim([0,np.sum(Thickness)]) # Set the x-axis limits to be 0 and the maximum material thickness
+#fig1, plt.ylim([np.min(np.min(np.floor(Temperature_data_F/100)))*100,np.max(np.max(np.ceil(Temperature_data_F/100)))*100]) # I tried to add some fancy code for setting the y-axis limit to nearest 100 for low and high temperature but just the default y-axis is better
 
 #%%
-Temperature_data.to_excel("output.xlsx", sheet_name = "output", na_rep = '')
-Temperature_data.to_csv("output.csv",sep=',')
+Temperature_data.to_excel("output.xlsx", sheet_name = "output", na_rep = '') # Output the data as an xlsx file named "output", on a sheet named "output", throwing away any nan values (makes it easier to plot since the temp series will be different lengths if there is ablation)
+Temperature_data.to_csv("output.csv",sep=',') # Output the data as a .csv with each value seperated by commas
