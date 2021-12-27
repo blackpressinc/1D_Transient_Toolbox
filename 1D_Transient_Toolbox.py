@@ -20,8 +20,8 @@ import matplotlib.pyplot as plt
 # each iteration. Once that variable exceeds the time_final, the simulation ends. You may want to add 1 second to the final time just because the 
 # once the time_final is exceeded by sim_time the simulation ends /before/ it gets to the data saving loop. So it might not save the last data point
 # =============================================================================
-time_final = 41.0 #[s]
-plotting_interval = 10.0 #[s] Data will ***saved*** be plotted at this interval. Note that this controls when data is saved
+time_final = 870.0 #[s]
+plotting_interval = 30.0 #[s] Data will ***saved*** be plotted at this interval. Note that this controls when data is saved
 T_initial = 274.0 #[K] All cells in the simulation will be initialized with this value. Once the Temperature_array has been created, you can add a custom temperature function or something
 # but I have not yet coded that
 P_initial = 1.0 #[atm] #pressure needs to be re-worked so that it can be made a function of time. This just acts as a place holder
@@ -38,7 +38,7 @@ Material_Properties_Calculation_Interval = 0.1 #[s]
 # Thickness is the total thickness of each material in millimeters (I will never use english to define a property god help me)
 # =============================================================================
 Material_list = ["T792","A12","P50"]
-Thickness = np.array([3.1,0.2,10]) #[mm] Array defining the thickness of the individual layers
+Thickness = np.array([3.1,0.2,12.7]) #[mm] Array defining the thickness of the individual layers
 
 # =============================================================================
 # These parameters actually setup the simulation mesh. Whichever is the tightest requirement will be used
@@ -109,7 +109,7 @@ Radiation_from_Boundary_left = False
 Fixed_Heatflux_left = False
 
 Transient_Conduction_left = False
-Transient_Convection_left = True
+Transient_Convection_left = False
 Transient_Radiation_to_Boundary_left = False
 Transient_Radiation_from_Boundary_left = False
 Transient_Fixed_Heatflux_left = False
@@ -171,8 +171,8 @@ T_rad_2_right = 300 #[K]
 q_in_right = 17500 #[W/m²]
 
 Conduction_right = False
-Convection_right = True
-Radiation_to_Boundary_right = True
+Convection_right = False
+Radiation_to_Boundary_right = False
 Radiation_from_Boundary_right = True
 Fixed_Heatflux_right = False
 
@@ -180,7 +180,7 @@ Transient_Conduction_right = False
 Transient_Convection_right = False
 Transient_Radiation_to_Boundary_right = False
 Transient_Radiation_from_Boundary_right = False
-Transient_Fixed_Heatflux_right = False
+Transient_Fixed_Heatflux_right = True
 
 if (Transient_Conduction_right+Transient_Convection_right+Transient_Radiation_to_Boundary_right+Transient_Radiation_from_Boundary_right+Transient_Fixed_Heatflux_right > 0):
 #Right Transient Boundary Conditions
@@ -199,7 +199,7 @@ if (Transient_Conduction_right+Transient_Convection_right+Transient_Radiation_to
     Transient_T_rad_2_right = 0 #[K]
     Transient_q_in_right = 0 #[W/m²]
     
-    Right_Transient_BC = pd.read_excel('Transient_Boundary_Conditions_for_Alpha_Flight_S1.xlsx',index_col=0,skiprows=1,header=1)
+    Right_Transient_BC = pd.read_excel('Francois_BC.xlsx',index_col=0,skiprows=1,header=1)
 
     for col in Right_Transient_BC.columns:
         globals()["Transient_"+str(col)+"_right"]=interpolate.interp1d(Right_Transient_BC.index.to_numpy(dtype=float),Right_Transient_BC[col].to_numpy(dtype=float))
